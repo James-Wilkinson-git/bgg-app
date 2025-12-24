@@ -70,7 +70,9 @@ const NewGames: React.FC = () => {
         acc[option] = (acc[option] || 0) + 1;
         return acc;
       }, {});
-    return Object.entries(optionCounts).sort(([a], [b]) => a.localeCompare(b));
+    return Object.entries(optionCounts).sort(
+      ([a, countA], [b, countB]) => countB - countA
+    );
   };
 
   const filteredGames = (games: GameDetails[]) => {
