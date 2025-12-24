@@ -71,7 +71,7 @@ const NewGames: React.FC = () => {
         return acc;
       }, {});
     return Object.entries(optionCounts).sort(
-      ([a, countA], [b, countB]) => countB - countA
+      ([, countA], [, countB]) => countB - countA
     );
   };
 
