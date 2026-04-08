@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 
 interface GameDetails {
   _id: string;
@@ -21,7 +21,7 @@ interface GameDetails {
   updatedAt?: string | null;
 }
 
-/** Keys used in filter dropdowns (excludes dates and non-filter fields). */
+/** Keys used in filters (excludes dates and non-filter fields). */
 type GameFilterFieldKey =
   | "minPlayers"
   | "maxPlayers"
@@ -33,6 +33,40 @@ type GameFilterFieldKey =
   | "publisher"
   | "playingTime";
 
+const FILTER_FIELDS: { key: GameFilterFieldKey; label: string }[] = [
+  { key: "publisher", label: "Publishers" },
+  { key: "designer", label: "Designers" },
+  { key: "categories", label: "Categories" },
+  { key: "mechanics", label: "Mechanics" },
+  { key: "artist", label: "Artists" },
+  { key: "playingTime", label: "Playing time" },
+  { key: "minPlayers", label: "Min players" },
+  { key: "maxPlayers", label: "Max players" },
+  { key: "minAge", label: "Min age" },
+];
+
+const ARRAY_FIELD_KEYS: ReadonlySet<GameFilterFieldKey> = new Set([
+  "categories",
+  "mechanics",
+  "designer",
+  "artist",
+  "publisher",
+]);
+
+function emptyFilterRecord(): Record<GameFilterFieldKey, string[]> {
+  return {
+    minPlayers: [],
+    maxPlayers: [],
+    minAge: [],
+    categories: [],
+    mechanics: [],
+    designer: [],
+    artist: [],
+    publisher: [],
+    playingTime: [],
+  };
+}
+
 function formatGameDate(value: unknown): string {
   if (value == null || value === "") return "—";
   const d = new Date(String(value));
@@ -43,87 +77,117 @@ function formatGameDate(value: unknown): string {
   });
 }
 
+function gamePassesFilters(
+  game: GameDetails,
+  include: Record<GameFilterFieldKey, string[]>,
+  exclude: Record<GameFilterFieldKey, string[]>
+): boolean {
+  for (const key of FILTER_FIELDS.map((f) => f.key)) {
+    const inc = include[key];
+    const exc = exclude[key];
+    if (ARRAY_FIELD_KEYS.has(key)) {
+      const vals = game[key] as string[];
+      if (exc.length > 0 && vals.some((v) => exc.includes(v))) {
+        return false;
+      }
+      if (inc.length > 0 && !vals.some((v) => inc.includes(v))) {
+        return false;
+      }
+    } else {
+      const val = String(game[key as keyof GameDetails]);
+      if (exc.length > 0 && exc.includes(val)) {
+        return false;
+      }
+      if (inc.length > 0 && !inc.includes(val)) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 const NewGames: React.FC = () => {
   const [gameDetails, setGameDetails] = useState<GameDetails[]>([]);
   const [allGames, setAllGames] = useState<GameDetails[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
-  const [filters, setFilters] = useState({
-    minPlayers: "",
-    maxPlayers: "",
-    minAge: "",
-    categories: "",
-    mechanics: "",
-    designers: "",
-    artist: "",
-    publishers: "",
-    playingTime: "", // Add playingTime filter
-  });
+  const [includeByField, setIncludeByField] = useState(emptyFilterRecord);
+  const [excludeByField, setExcludeByField] = useState(emptyFilterRecord);
   const [currentPage, setCurrentPage] = useState(1);
   const [onlyNewSinceLastRun, setOnlyNewSinceLastRun] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const itemsPerPage = 20;
 
-  const handleFilterChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setFilters({
-      ...filters,
-      [e.target.name]: e.target.value,
-    });
-    setCurrentPage(1); // Reset to first page on filter change
-  };
-
-  const resetFilters = () => {
-    setFilters({
-      minPlayers: "",
-      maxPlayers: "",
-      minAge: "",
-      categories: "",
-      mechanics: "",
-      designers: "",
-      artist: "",
-      publishers: "",
-      playingTime: "", // Reset playingTime filter
-    });
-    setOnlyNewSinceLastRun(false);
-    setCurrentPage(1); // Reset to first page on reset
-  };
-
-  const getUniqueOptionsWithCount = (
-    games: GameDetails[],
-    key: GameFilterFieldKey
-  ) => {
-    const options = games.map((game) => game[key]);
-    const optionCounts = options
-      .flat()
-      .reduce((acc: Record<string, number>, option: string) => {
-        acc[option] = (acc[option] || 0) + 1;
-        return acc;
-      }, {});
-    return Object.entries(optionCounts).sort(
-      ([, countA], [, countB]) => countB - countA
-    );
-  };
-
-  const filteredGames = (games: GameDetails[]) => {
-    return games.filter((game) => {
-      return (
-        (filters.minPlayers === "" ||
-          game.minPlayers.includes(filters.minPlayers)) &&
-        (filters.maxPlayers === "" ||
-          game.maxPlayers.includes(filters.maxPlayers)) &&
-        (filters.minAge === "" || game.minAge.includes(filters.minAge)) &&
-        (filters.categories === "" ||
-          game.categories.includes(filters.categories)) &&
-        (filters.mechanics === "" ||
-          game.mechanics.includes(filters.mechanics)) &&
-        (filters.designers === "" ||
-          game.designer.includes(filters.designers)) &&
-        (filters.artist === "" || game.artist.includes(filters.artist)) &&
-        (filters.publishers === "" ||
-          game.publisher.includes(filters.publishers)) &&
-        (filters.playingTime === "" || game.playingTime === filters.playingTime) // Ensure exact match for playingTime
+  const getUniqueOptionsWithCount = useCallback(
+    (games: GameDetails[], key: GameFilterFieldKey) => {
+      const options = games.map((game) => game[key]);
+      const optionCounts = options
+        .flat()
+        .reduce((acc: Record<string, number>, option: string) => {
+          acc[option] = (acc[option] || 0) + 1;
+          return acc;
+        }, {});
+      return Object.entries(optionCounts).sort(
+        ([, countA], [, countB]) => countB - countA
       );
-    });
-  };
+    },
+    []
+  );
+
+  const toggleFilter = useCallback(
+    (
+      field: GameFilterFieldKey,
+      value: string,
+      mode: "include" | "exclude",
+      checked: boolean
+    ) => {
+      setCurrentPage(1);
+      if (mode === "include") {
+        setIncludeByField((prev) => {
+          const cur = prev[field];
+          const nextList = checked
+            ? [...new Set([...cur, value])]
+            : cur.filter((x) => x !== value);
+          return { ...prev, [field]: nextList };
+        });
+        if (checked) {
+          setExcludeByField((prev) => ({
+            ...prev,
+            [field]: prev[field].filter((x) => x !== value),
+          }));
+        }
+      } else {
+        setExcludeByField((prev) => {
+          const cur = prev[field];
+          const nextList = checked
+            ? [...new Set([...cur, value])]
+            : cur.filter((x) => x !== value);
+          return { ...prev, [field]: nextList };
+        });
+        if (checked) {
+          setIncludeByField((prev) => ({
+            ...prev,
+            [field]: prev[field].filter((x) => x !== value),
+          }));
+        }
+      }
+    },
+    []
+  );
+
+  const resetFilters = useCallback(() => {
+    setIncludeByField(emptyFilterRecord());
+    setExcludeByField(emptyFilterRecord());
+    setOnlyNewSinceLastRun(false);
+    setCurrentPage(1);
+  }, []);
+
+  const filteredGames = useCallback(
+    (games: GameDetails[]) =>
+      games.filter((game) =>
+        gamePassesFilters(game, includeByField, excludeByField)
+      ),
+    [includeByField, excludeByField]
+  );
 
   useEffect(() => {
     const fetchGameDetails = async () => {
@@ -155,6 +219,14 @@ const NewGames: React.FC = () => {
 
     fetchGameDetails();
   }, [onlyNewSinceLastRun]);
+
+  const optionsByField = useMemo(() => {
+    const o: Partial<Record<GameFilterFieldKey, [string, number][]>> = {};
+    for (const { key } of FILTER_FIELDS) {
+      o[key] = getUniqueOptionsWithCount(allGames, key);
+    }
+    return o as Record<GameFilterFieldKey, [string, number][]>;
+  }, [allGames, getUniqueOptionsWithCount]);
 
   if (loading) {
     return (
@@ -191,280 +263,270 @@ const NewGames: React.FC = () => {
   }
 
   const filteredGameDetails = filteredGames(gameDetails);
-  const totalPages = Math.ceil(filteredGameDetails.length / itemsPerPage);
+  const totalPages = Math.ceil(filteredGameDetails.length / itemsPerPage) || 1;
   const currentGames = filteredGameDetails.slice(
     (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage
   );
 
-  const minPlayersOptions = getUniqueOptionsWithCount(allGames, "minPlayers");
-  const maxPlayersOptions = getUniqueOptionsWithCount(allGames, "maxPlayers");
-  const minAgeOptions = getUniqueOptionsWithCount(allGames, "minAge");
-  const categoriesOptions = getUniqueOptionsWithCount(allGames, "categories");
-  const mechanicsOptions = getUniqueOptionsWithCount(allGames, "mechanics");
-  const designersOptions = getUniqueOptionsWithCount(allGames, "designer");
-  const artistOptions = getUniqueOptionsWithCount(allGames, "artist");
-  const publishersOptions = getUniqueOptionsWithCount(allGames, "publisher");
-  const playingTimeOptions = getUniqueOptionsWithCount(allGames, "playingTime"); // Add playingTime options
-
   return (
-    <div className="max-w-[1600px] mx-auto">
-      <h2 className="text-2xl">2026 Games</h2>
+    <div className="max-w-[1600px] mx-auto px-3 sm:px-4">
+      <h2 className="text-2xl mb-4">2026 Games</h2>
       {loadError ? (
         <p className="mb-4 text-amber-900 bg-amber-50 border border-amber-200 rounded p-3">
           {loadError}
         </p>
       ) : null}
-      <div className="mb-4 p-4 border rounded bg-gray-100">
-        <h3 className="mb-2 text-xl font-bold">Filter Games</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-          <select
-            name="minPlayers"
-            value={filters.minPlayers}
-            onChange={handleFilterChange}
-            className="p-2 border rounded"
-          >
-            <option value="">Min Players</option>
-            {minPlayersOptions.map(([option, count]) => (
-              <option key={option} value={option}>
-                {option} ({count})
-              </option>
-            ))}
-          </select>
-          <select
-            name="maxPlayers"
-            value={filters.maxPlayers}
-            onChange={handleFilterChange}
-            className="p-2 border rounded"
-          >
-            <option value="">Max Players</option>
-            {maxPlayersOptions.map(([option, count]) => (
-              <option key={option} value={option}>
-                {option} ({count})
-              </option>
-            ))}
-          </select>
-          <select
-            name="minAge"
-            value={filters.minAge}
-            onChange={handleFilterChange}
-            className="p-2 border rounded"
-          >
-            <option value="">Min Age</option>
-            {minAgeOptions.map(([option, count]) => (
-              <option key={option} value={option}>
-                {option} ({count})
-              </option>
-            ))}
-          </select>
-          <select
-            name="categories"
-            value={filters.categories}
-            onChange={handleFilterChange}
-            className="p-2 border rounded"
-          >
-            <option value="">Categories</option>
-            {categoriesOptions.map(([option, count]) => (
-              <option key={option} value={option}>
-                {option} ({count})
-              </option>
-            ))}
-          </select>
-          <select
-            name="mechanics"
-            value={filters.mechanics}
-            onChange={handleFilterChange}
-            className="p-2 border rounded"
-          >
-            <option value="">Mechanics</option>
-            {mechanicsOptions.map(([option, count]) => (
-              <option key={option} value={option}>
-                {option} ({count})
-              </option>
-            ))}
-          </select>
-          <select
-            name="designers"
-            value={filters.designers}
-            onChange={handleFilterChange}
-            className="p-2 border rounded"
-          >
-            <option value="">Designers</option>
-            {designersOptions.map(([option, count]) => (
-              <option key={option} value={option}>
-                {option} ({count})
-              </option>
-            ))}
-          </select>
-          <select
-            name="artist" // Change from artists to artist
-            value={filters.artist} // Change from artists to artist
-            onChange={handleFilterChange}
-            className="p-2 border rounded"
-          >
-            <option value="">Artists</option>
-            {artistOptions.map(([option, count]) => (
-              <option key={option} value={option}>
-                {option} ({count})
-              </option>
-            ))}
-          </select>
-          <select
-            name="publishers"
-            value={filters.publishers}
-            onChange={handleFilterChange}
-            className="p-2 border rounded"
-          >
-            <option value="">Publishers</option>
-            {publishersOptions.map(([option, count]) => (
-              <option key={option} value={option}>
-                {option} ({count})
-              </option>
-            ))}
-          </select>
-          <select
-            name="playingTime"
-            value={filters.playingTime}
-            onChange={handleFilterChange}
-            className="p-2 border rounded"
-          >
-            <option value="">Playing Time</option>
-            {playingTimeOptions.map(([option, count]) => (
-              <option key={option} value={option}>
-                {option} ({count})
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="mt-4 flex flex-col sm:flex-row sm:flex-wrap gap-3 sm:items-center">
+
+      <div className="flex flex-col lg:flex-row gap-6 lg:items-start">
+        <aside className="w-full lg:w-[22rem] shrink-0 border border-slate-200 rounded-lg bg-slate-50 p-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto">
+          <h3 className="text-lg font-bold text-slate-800 mb-3">Filters</h3>
+          <p className="text-xs text-slate-600 mb-4">
+            Include: show only games matching at least one checked value in that
+            row (empty = no include rule). Exclude: hide games with any checked
+            value. You cannot include and exclude the same value.
+          </p>
+
           <button
             type="button"
             onClick={() => {
               setOnlyNewSinceLastRun((v) => !v);
               setCurrentPage(1);
             }}
-            className={`p-2 rounded w-full sm:w-auto border-2 font-medium transition-colors ${
+            className={`w-full mb-3 px-3 py-2 rounded border-2 text-sm font-medium transition-colors ${
               onlyNewSinceLastRun
                 ? "bg-emerald-600 border-emerald-700 text-white"
-                : "bg-white border-gray-300 text-gray-800 hover:bg-gray-50"
+                : "bg-white border-slate-300 text-slate-800 hover:bg-slate-100"
             }`}
           >
             {onlyNewSinceLastRun
               ? "Showing new since last run"
               : "New since last run only"}
           </button>
+
           <button
             type="button"
             onClick={resetFilters}
-            className="p-2 bg-red-500 text-white rounded w-full sm:w-auto"
+            className="w-full mb-4 px-3 py-2 bg-red-500 text-white rounded text-sm font-medium hover:bg-red-600"
           >
-            Reset Filters
+            Reset filters
           </button>
-        </div>
-      </div>
-      <div>
-        {currentGames.length === 0 ? (
-          <p>
-            No games returned, this likely means the server needs to wake up try
-            again in 2 minutes.
-          </p>
-        ) : (
-          currentGames.map((game) => (
-            <div
-              className="flex flex-col md:flex-row shadow border-gray-700 bg-white my-4"
-              key={game._id}
-            >
-              <div className="w-full md:w-[200px] flex-shrink-0">
-                <img
-                  src={game.thumbnail}
-                  alt={game.name}
-                  className="w-full"
-                  loading="lazy"
-                />
-              </div>
-              <div className="flex flex-col h-full p-4 leading-normal">
-                <h3 className="mb-2 text-2xl font-bold tracking-tight">
-                  {game.name} ({game.yearPublished})
-                </h3>
-                <p className="text-sm text-slate-600 mb-3">
-                  <span className="mr-4">
-                    <strong className="text-slate-700">BGG discovered:</strong>{" "}
-                    {formatGameDate(game.bggDiscoveredAt)}
-                  </span>
-                  <span>
-                    <strong className="text-slate-700">Updated:</strong>{" "}
-                    {formatGameDate(game.updatedAt)}
-                  </span>
-                </p>
-                <p>
-                  <strong>Designers:</strong> {game.designer.join(", ")}
-                </p>
-                <p>
-                  <strong>Artists:</strong> {game.artist.join(", ")}
-                </p>
-                <p>
-                  <strong>Publishers:</strong> {game.publisher.join(", ")}
-                </p>
-                <p>
-                  <strong>Players:</strong> {game.minPlayers} -{" "}
-                  {game.maxPlayers}
-                </p>
-                <p>
-                  <strong>Playing Time:</strong> {game.playingTime} minutes
-                </p>
-                <p>
-                  <strong>Min Age:</strong> {game.minAge}+
-                </p>
-                <p>
-                  <strong>Categories:</strong> {game.categories.join(", ")}
-                </p>
-                <p>
-                  <strong>Mechanics:</strong> {game.mechanics.join(", ")}
-                </p>
-                <p>
-                  <strong>Description:</strong>{" "}
-                  <span
-                    dangerouslySetInnerHTML={{ __html: game.description }}
-                  ></span>
-                </p>
-                <div className="p-4 w-full flex">
-                  <a
-                    className="text-center w-full mt-4 p-4 border-2 border-slate-300 hover:bg-slate-200"
-                    href={`https://boardgamegeek.com/boardgame/${game.id}`}
-                    target="_blank"
-                  >
-                    View on BGG
-                  </a>
+
+          <div className="space-y-5">
+            {FILTER_FIELDS.map(({ key, label }) => {
+              const rows = optionsByField[key] ?? [];
+              const idPrefix = `filter-${key}`;
+              return (
+                <div
+                  key={key}
+                  className="border border-slate-200 rounded-md bg-white overflow-hidden"
+                >
+                  <div className="px-2 py-1.5 bg-slate-100 border-b border-slate-200">
+                    <span className="text-sm font-semibold text-slate-800">
+                      {label}
+                    </span>
+                  </div>
+                  <div className="max-h-52 overflow-y-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-100 text-slate-500">
+                          <th className="text-left font-medium py-1 px-2 min-w-0">
+                            Value
+                          </th>
+                          <th className="text-center font-medium py-1 px-1 w-14">
+                            Inc
+                          </th>
+                          <th className="text-center font-medium py-1 px-1 w-14">
+                            Exc
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map(([option, count]) => {
+                          const inc = includeByField[key].includes(option);
+                          const exc = excludeByField[key].includes(option);
+                          const rowId = `${idPrefix}-${encodeURIComponent(
+                            option
+                          ).slice(0, 80)}`;
+                          return (
+                            <tr
+                              key={option}
+                              className="border-b border-slate-50 last:border-0 hover:bg-slate-50/80"
+                            >
+                              <td className="py-1 px-2 text-slate-700 break-words">
+                                <label
+                                  htmlFor={`${rowId}-inc`}
+                                  className="cursor-pointer"
+                                >
+                                  {option}{" "}
+                                  <span className="text-slate-400">
+                                    ({count})
+                                  </span>
+                                </label>
+                              </td>
+                              <td className="text-center py-1 px-1">
+                                <input
+                                  id={`${rowId}-inc`}
+                                  type="checkbox"
+                                  checked={inc}
+                                  disabled={exc}
+                                  onChange={(e) =>
+                                    toggleFilter(
+                                      key,
+                                      option,
+                                      "include",
+                                      e.target.checked
+                                    )
+                                  }
+                                  className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                                  aria-label={`Include ${label}: ${option}`}
+                                />
+                              </td>
+                              <td className="text-center py-1 px-1">
+                                <input
+                                  id={`${rowId}-exc`}
+                                  type="checkbox"
+                                  checked={exc}
+                                  disabled={inc}
+                                  onChange={(e) =>
+                                    toggleFilter(
+                                      key,
+                                      option,
+                                      "exclude",
+                                      e.target.checked
+                                    )
+                                  }
+                                  className="h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500"
+                                  aria-label={`Exclude ${label}: ${option}`}
+                                />
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-              </div>
-            </div>
-          ))
-        )}
-      </div>
-      <div className="flex justify-center mt-4">
-        <button
-          onClick={() => {
-            setCurrentPage((prev) => Math.max(prev - 1, 1));
-            window.scrollTo({ top: 0, behavior: "smooth" });
-          }}
-          disabled={currentPage === 1}
-          className="p-2 mx-2 border rounded"
-        >
-          Previous
-        </button>
-        <span className="p-2">
-          {currentPage} / {totalPages}
-        </span>
-        <button
-          onClick={() => {
-            setCurrentPage((prev) => Math.min(prev + 1, totalPages));
-            window.scrollTo({ top: 0, behavior: "smooth" });
-          }}
-          disabled={currentPage === totalPages}
-          className="p-2 mx-2 border rounded"
-        >
-          Next
-        </button>
+              );
+            })}
+          </div>
+        </aside>
+
+        <main className="flex-1 min-w-0">
+          <p className="text-sm text-slate-600 mb-3">
+            Showing {filteredGameDetails.length} game
+            {filteredGameDetails.length !== 1 ? "s" : ""}
+          </p>
+          <div>
+            {currentGames.length === 0 ? (
+              <p>
+                No games match these filters, or nothing was returned from the
+                server yet.
+              </p>
+            ) : (
+              currentGames.map((game) => (
+                <div
+                  className="flex flex-col md:flex-row shadow border border-slate-200 bg-white my-4 rounded overflow-hidden"
+                  key={game._id}
+                >
+                  <div className="w-full md:w-[200px] flex-shrink-0">
+                    <img
+                      src={game.thumbnail}
+                      alt={game.name}
+                      className="w-full"
+                      loading="lazy"
+                    />
+                  </div>
+                  <div className="flex flex-col h-full p-4 leading-normal">
+                    <h3 className="mb-2 text-2xl font-bold tracking-tight">
+                      {game.name} ({game.yearPublished})
+                    </h3>
+                    <p className="text-sm text-slate-600 mb-3">
+                      <span className="mr-4">
+                        <strong className="text-slate-700">
+                          BGG discovered:
+                        </strong>{" "}
+                        {formatGameDate(game.bggDiscoveredAt)}
+                      </span>
+                      <span>
+                        <strong className="text-slate-700">Updated:</strong>{" "}
+                        {formatGameDate(game.updatedAt)}
+                      </span>
+                    </p>
+                    <p>
+                      <strong>Designers:</strong> {game.designer.join(", ")}
+                    </p>
+                    <p>
+                      <strong>Artists:</strong> {game.artist.join(", ")}
+                    </p>
+                    <p>
+                      <strong>Publishers:</strong> {game.publisher.join(", ")}
+                    </p>
+                    <p>
+                      <strong>Players:</strong> {game.minPlayers} -{" "}
+                      {game.maxPlayers}
+                    </p>
+                    <p>
+                      <strong>Playing Time:</strong> {game.playingTime} minutes
+                    </p>
+                    <p>
+                      <strong>Min Age:</strong> {game.minAge}+
+                    </p>
+                    <p>
+                      <strong>Categories:</strong> {game.categories.join(", ")}
+                    </p>
+                    <p>
+                      <strong>Mechanics:</strong> {game.mechanics.join(", ")}
+                    </p>
+                    <p>
+                      <strong>Description:</strong>{" "}
+                      <span
+                        dangerouslySetInnerHTML={{ __html: game.description }}
+                      ></span>
+                    </p>
+                    <div className="p-4 w-full flex">
+                      <a
+                        className="text-center w-full mt-4 p-4 border-2 border-slate-300 hover:bg-slate-200 rounded"
+                        href={`https://boardgamegeek.com/boardgame/${game.id}`}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        View on BGG
+                      </a>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+          <div className="flex justify-center mt-4 flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setCurrentPage((prev) => Math.max(prev - 1, 1));
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+              disabled={currentPage === 1}
+              className="p-2 px-4 border border-slate-300 rounded bg-white hover:bg-slate-50 disabled:opacity-50"
+            >
+              Previous
+            </button>
+            <span className="p-2 text-slate-700">
+              {currentPage} / {totalPages}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setCurrentPage((prev) => Math.min(prev + 1, totalPages));
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+              disabled={currentPage === totalPages}
+              className="p-2 px-4 border border-slate-300 rounded bg-white hover:bg-slate-50 disabled:opacity-50"
+            >
+              Next
+            </button>
+          </div>
+        </main>
       </div>
     </div>
   );
