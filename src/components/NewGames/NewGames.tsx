@@ -35,6 +35,7 @@ const NewGames: React.FC = () => {
   });
   const [currentPage, setCurrentPage] = useState(1);
   const [onlyNewSinceLastRun, setOnlyNewSinceLastRun] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const itemsPerPage = 20;
 
   const handleFilterChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -102,18 +103,26 @@ const NewGames: React.FC = () => {
   useEffect(() => {
     const fetchGameDetails = async () => {
       setLoading(true);
+      setLoadError(null);
       try {
-        const base = import.meta.env.VITE_API_URL ?? "";
-        const path = base.endsWith("/games")
-          ? `${base}/2026`
-          : `${base}/games/2026`;
+        const base = (import.meta.env.VITE_API_URL ?? "/api").replace(
+          /\/$/,
+          ""
+        );
         const q = onlyNewSinceLastRun ? "?sinceLastRun=true" : "";
-        const response = await fetch(`${path}${q}`);
+        const response = await fetch(`${base}/games/2026${q}`);
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
         const data = await response.json();
-        setGameDetails(data.games);
-        setAllGames(data.games);
-      } catch (error) {
-        console.error("Error fetching game details:", error);
+        setGameDetails(data.games ?? []);
+        setAllGames(data.games ?? []);
+      } catch {
+        setLoadError(
+          "Could not load games. Start the API (e.g. port 4000) or check your network."
+        );
+        setGameDetails([]);
+        setAllGames([]);
       } finally {
         setLoading(false);
       }
@@ -142,7 +151,7 @@ const NewGames: React.FC = () => {
               cy="12"
               r="10"
               stroke="currentColor"
-              stroke-width="4"
+              strokeWidth="4"
             ></circle>
             <path
               className="opacity-75"
@@ -176,6 +185,11 @@ const NewGames: React.FC = () => {
   return (
     <div className="max-w-[1600px] mx-auto">
       <h2 className="text-2xl">2026 Games</h2>
+      {loadError ? (
+        <p className="mb-4 text-amber-900 bg-amber-50 border border-amber-200 rounded p-3">
+          {loadError}
+        </p>
+      ) : null}
       <div className="mb-4 p-4 border rounded bg-gray-100">
         <h3 className="mb-2 text-xl font-bold">Filter Games</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
