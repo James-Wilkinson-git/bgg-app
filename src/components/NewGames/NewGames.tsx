@@ -16,6 +16,31 @@ interface GameDetails {
   designer: string[];
   artist: string[];
   publisher: string[];
+  /** ISO date from MongoDB / scrape */
+  bggDiscoveredAt?: string | null;
+  updatedAt?: string | null;
+}
+
+/** Keys used in filter dropdowns (excludes dates and non-filter fields). */
+type GameFilterFieldKey =
+  | "minPlayers"
+  | "maxPlayers"
+  | "minAge"
+  | "categories"
+  | "mechanics"
+  | "designer"
+  | "artist"
+  | "publisher"
+  | "playingTime";
+
+function formatGameDate(value: unknown): string {
+  if (value == null || value === "") return "—";
+  const d = new Date(String(value));
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
 }
 
 const NewGames: React.FC = () => {
@@ -64,7 +89,7 @@ const NewGames: React.FC = () => {
 
   const getUniqueOptionsWithCount = (
     games: GameDetails[],
-    key: keyof GameDetails
+    key: GameFilterFieldKey
   ) => {
     const options = games.map((game) => game[key]);
     const optionCounts = options
@@ -361,6 +386,16 @@ const NewGames: React.FC = () => {
                 <h3 className="mb-2 text-2xl font-bold tracking-tight">
                   {game.name} ({game.yearPublished})
                 </h3>
+                <p className="text-sm text-slate-600 mb-3">
+                  <span className="mr-4">
+                    <strong className="text-slate-700">BGG discovered:</strong>{" "}
+                    {formatGameDate(game.bggDiscoveredAt)}
+                  </span>
+                  <span>
+                    <strong className="text-slate-700">Updated:</strong>{" "}
+                    {formatGameDate(game.updatedAt)}
+                  </span>
+                </p>
                 <p>
                   <strong>Designers:</strong> {game.designer.join(", ")}
                 </p>
