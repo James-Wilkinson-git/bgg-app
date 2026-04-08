@@ -34,6 +34,7 @@ const NewGames: React.FC = () => {
     playingTime: "", // Add playingTime filter
   });
   const [currentPage, setCurrentPage] = useState(1);
+  const [onlyNewSinceLastRun, setOnlyNewSinceLastRun] = useState(false);
   const itemsPerPage = 20;
 
   const handleFilterChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -56,12 +57,13 @@ const NewGames: React.FC = () => {
       publishers: "",
       playingTime: "", // Reset playingTime filter
     });
+    setOnlyNewSinceLastRun(false);
     setCurrentPage(1); // Reset to first page on reset
   };
 
   const getUniqueOptionsWithCount = (
     games: GameDetails[],
-    key: keyof GameDetails,
+    key: keyof GameDetails
   ) => {
     const options = games.map((game) => game[key]);
     const optionCounts = options
@@ -71,7 +73,7 @@ const NewGames: React.FC = () => {
         return acc;
       }, {});
     return Object.entries(optionCounts).sort(
-      ([, countA], [, countB]) => countB - countA,
+      ([, countA], [, countB]) => countB - countA
     );
   };
 
@@ -99,22 +101,26 @@ const NewGames: React.FC = () => {
 
   useEffect(() => {
     const fetchGameDetails = async () => {
+      setLoading(true);
       try {
-        const response = await fetch(
-          `${import.meta.env.VITE_API_URL}/games/2026`,
-        );
+        const base = import.meta.env.VITE_API_URL ?? "";
+        const path = base.endsWith("/games")
+          ? `${base}/2026`
+          : `${base}/games/2026`;
+        const q = onlyNewSinceLastRun ? "?sinceLastRun=true" : "";
+        const response = await fetch(`${path}${q}`);
         const data = await response.json();
         setGameDetails(data.games);
         setAllGames(data.games);
-        setLoading(false);
       } catch (error) {
         console.error("Error fetching game details:", error);
+      } finally {
         setLoading(false);
       }
     };
 
     fetchGameDetails();
-  }, []);
+  }, [onlyNewSinceLastRun]);
 
   if (loading) {
     return (
@@ -154,7 +160,7 @@ const NewGames: React.FC = () => {
   const totalPages = Math.ceil(filteredGameDetails.length / itemsPerPage);
   const currentGames = filteredGameDetails.slice(
     (currentPage - 1) * itemsPerPage,
-    currentPage * itemsPerPage,
+    currentPage * itemsPerPage
   );
 
   const minPlayersOptions = getUniqueOptionsWithCount(allGames, "minPlayers");
@@ -291,12 +297,31 @@ const NewGames: React.FC = () => {
             ))}
           </select>
         </div>
-        <button
-          onClick={resetFilters}
-          className="mt-4 p-2 bg-red-500 text-white rounded w-full sm:w-auto"
-        >
-          Reset Filters
-        </button>
+        <div className="mt-4 flex flex-col sm:flex-row sm:flex-wrap gap-3 sm:items-center">
+          <button
+            type="button"
+            onClick={() => {
+              setOnlyNewSinceLastRun((v) => !v);
+              setCurrentPage(1);
+            }}
+            className={`p-2 rounded w-full sm:w-auto border-2 font-medium transition-colors ${
+              onlyNewSinceLastRun
+                ? "bg-emerald-600 border-emerald-700 text-white"
+                : "bg-white border-gray-300 text-gray-800 hover:bg-gray-50"
+            }`}
+          >
+            {onlyNewSinceLastRun
+              ? "Showing new since last run"
+              : "New since last run only"}
+          </button>
+          <button
+            type="button"
+            onClick={resetFilters}
+            className="p-2 bg-red-500 text-white rounded w-full sm:w-auto"
+          >
+            Reset Filters
+          </button>
+        </div>
       </div>
       <div>
         {currentGames.length === 0 ? (
