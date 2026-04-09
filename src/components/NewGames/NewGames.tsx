@@ -205,7 +205,7 @@ const NewGames: React.FC = () => {
         }
         const data = await response.json();
         const games = [...(data.games ?? [])].sort(
-          (a, b) => Number(a.id) - Number(b.id)
+          (a, b) => Number(b.id) - Number(a.id)
         );
         setGameDetails(games);
         setAllGames(games);
