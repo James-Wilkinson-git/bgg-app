@@ -204,8 +204,11 @@ const NewGames: React.FC = () => {
           throw new Error(`HTTP ${response.status}`);
         }
         const data = await response.json();
-        setGameDetails(data.games ?? []);
-        setAllGames(data.games ?? []);
+        const games = [...(data.games ?? [])].sort(
+          (a, b) => Number(a.id) - Number(b.id)
+        );
+        setGameDetails(games);
+        setAllGames(games);
       } catch {
         setLoadError(
           "Could not load games. Start the API (e.g. port 4000) or check your network."
