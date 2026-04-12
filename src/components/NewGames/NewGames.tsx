@@ -114,6 +114,7 @@ const NewGames: React.FC = () => {
   const [excludeByField, setExcludeByField] = useState(emptyFilterRecord);
   const [currentPage, setCurrentPage] = useState(1);
   const [onlyNewSinceLastRun, setOnlyNewSinceLastRun] = useState(false);
+  const [selectedDiscoveredAt, setSelectedDiscoveredAt] = useState("");
   const [loadError, setLoadError] = useState<string | null>(null);
   const itemsPerPage = 20;
 
@@ -178,6 +179,7 @@ const NewGames: React.FC = () => {
     setIncludeByField(emptyFilterRecord());
     setExcludeByField(emptyFilterRecord());
     setOnlyNewSinceLastRun(false);
+    setSelectedDiscoveredAt("");
     setCurrentPage(1);
   }, []);
 
@@ -231,6 +233,27 @@ const NewGames: React.FC = () => {
     return o as Record<GameFilterFieldKey, [string, number][]>;
   }, [allGames, getUniqueOptionsWithCount]);
 
+  const discoveredAtOptions = useMemo(() => {
+    const raw = allGames
+      .map((g) => g.bggDiscoveredAt)
+      .filter((v): v is string => v != null && String(v).trim() !== "");
+    const unique = [...new Set(raw)];
+    unique.sort(
+      (a, b) => new Date(b).getTime() - new Date(a).getTime()
+    );
+    return unique;
+  }, [allGames]);
+
+  const filteredGameDetails = useMemo(() => {
+    const byDate =
+      selectedDiscoveredAt === ""
+        ? gameDetails
+        : gameDetails.filter(
+            (g) => g.bggDiscoveredAt === selectedDiscoveredAt
+          );
+    return filteredGames(byDate);
+  }, [gameDetails, selectedDiscoveredAt, filteredGames]);
+
   if (loading) {
     return (
       <p>
@@ -265,7 +288,6 @@ const NewGames: React.FC = () => {
     );
   }
 
-  const filteredGameDetails = filteredGames(gameDetails);
   const totalPages = Math.ceil(filteredGameDetails.length / itemsPerPage) || 1;
   const currentGames = filteredGameDetails.slice(
     (currentPage - 1) * itemsPerPage,
@@ -294,6 +316,7 @@ const NewGames: React.FC = () => {
             type="button"
             onClick={() => {
               setOnlyNewSinceLastRun((v) => !v);
+              setSelectedDiscoveredAt("");
               setCurrentPage(1);
             }}
             className={`w-full mb-3 px-3 py-2 rounded border-2 text-sm font-medium transition-colors ${
@@ -314,6 +337,38 @@ const NewGames: React.FC = () => {
           >
             Reset filters
           </button>
+
+          <div className="border border-slate-200 rounded-md bg-white overflow-hidden mb-5">
+            <div className="px-2 py-1.5 bg-slate-100 border-b border-slate-200">
+              <span className="text-sm font-semibold text-slate-800">
+                BGG discovered at
+              </span>
+            </div>
+            <div className="p-2">
+              <label
+                htmlFor="filter-bgg-discovered-at"
+                className="sr-only"
+              >
+                Filter by BGG discovered date
+              </label>
+              <select
+                id="filter-bgg-discovered-at"
+                value={selectedDiscoveredAt}
+                onChange={(e) => {
+                  setSelectedDiscoveredAt(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="w-full text-sm rounded border border-slate-300 bg-white px-2 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              >
+                <option value="">All discovery times</option>
+                {discoveredAtOptions.map((iso) => (
+                  <option key={iso} value={iso}>
+                    {formatGameDate(iso)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
 
           <div className="space-y-5">
             {FILTER_FIELDS.map(({ key, label }) => {
