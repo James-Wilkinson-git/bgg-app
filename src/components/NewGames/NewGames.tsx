@@ -77,6 +77,32 @@ function formatGameDate(value: unknown): string {
   });
 }
 
+/** Local calendar date as YYYY-MM-DD (for grouping discovery timestamps by day). */
+function discoveredLocalDateKey(value: unknown): string | null {
+  if (value == null || value === "") return null;
+  const d = new Date(String(value));
+  if (Number.isNaN(d.getTime())) return null;
+  const y = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${mo}-${day}`;
+}
+
+function formatLocalDateKeyLabel(key: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key);
+  if (!m) return key;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  if (Number.isNaN(d.getTime())) return key;
+  return d.toLocaleDateString(undefined, { dateStyle: "medium" });
+}
+
+function formatDateOnly(value: unknown): string {
+  if (value == null || value === "") return "—";
+  const d = new Date(String(value));
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString(undefined, { dateStyle: "medium" });
+}
+
 function gamePassesFilters(
   game: GameDetails,
   include: Record<GameFilterFieldKey, string[]>,
@@ -114,7 +140,7 @@ const NewGames: React.FC = () => {
   const [excludeByField, setExcludeByField] = useState(emptyFilterRecord);
   const [currentPage, setCurrentPage] = useState(1);
   const [onlyNewSinceLastRun, setOnlyNewSinceLastRun] = useState(false);
-  const [selectedDiscoveredAt, setSelectedDiscoveredAt] = useState("");
+  const [selectedDiscoveredDate, setSelectedDiscoveredDate] = useState("");
   const [loadError, setLoadError] = useState<string | null>(null);
   const itemsPerPage = 20;
 
@@ -179,7 +205,7 @@ const NewGames: React.FC = () => {
     setIncludeByField(emptyFilterRecord());
     setExcludeByField(emptyFilterRecord());
     setOnlyNewSinceLastRun(false);
-    setSelectedDiscoveredAt("");
+    setSelectedDiscoveredDate("");
     setCurrentPage(1);
   }, []);
 
@@ -233,26 +259,26 @@ const NewGames: React.FC = () => {
     return o as Record<GameFilterFieldKey, [string, number][]>;
   }, [allGames, getUniqueOptionsWithCount]);
 
-  const discoveredAtOptions = useMemo(() => {
-    const raw = allGames
-      .map((g) => g.bggDiscoveredAt)
-      .filter((v): v is string => v != null && String(v).trim() !== "");
-    const unique = [...new Set(raw)];
-    unique.sort(
-      (a, b) => new Date(b).getTime() - new Date(a).getTime()
-    );
+  const discoveredDateOptions = useMemo(() => {
+    const keys = allGames
+      .map((g) => discoveredLocalDateKey(g.bggDiscoveredAt))
+      .filter((k): k is string => k != null);
+    const unique = [...new Set(keys)];
+    unique.sort((a, b) => b.localeCompare(a));
     return unique;
   }, [allGames]);
 
   const filteredGameDetails = useMemo(() => {
     const byDate =
-      selectedDiscoveredAt === ""
+      selectedDiscoveredDate === ""
         ? gameDetails
         : gameDetails.filter(
-            (g) => g.bggDiscoveredAt === selectedDiscoveredAt
+            (g) =>
+              discoveredLocalDateKey(g.bggDiscoveredAt) ===
+              selectedDiscoveredDate
           );
     return filteredGames(byDate);
-  }, [gameDetails, selectedDiscoveredAt, filteredGames]);
+  }, [gameDetails, selectedDiscoveredDate, filteredGames]);
 
   if (loading) {
     return (
@@ -316,7 +342,7 @@ const NewGames: React.FC = () => {
             type="button"
             onClick={() => {
               setOnlyNewSinceLastRun((v) => !v);
-              setSelectedDiscoveredAt("");
+              setSelectedDiscoveredDate("");
               setCurrentPage(1);
             }}
             className={`w-full mb-3 px-3 py-2 rounded border-2 text-sm font-medium transition-colors ${
@@ -341,29 +367,29 @@ const NewGames: React.FC = () => {
           <div className="border border-slate-200 rounded-md bg-white overflow-hidden mb-5">
             <div className="px-2 py-1.5 bg-slate-100 border-b border-slate-200">
               <span className="text-sm font-semibold text-slate-800">
-                BGG discovered at
+                BGG discovered on
               </span>
             </div>
             <div className="p-2">
               <label
-                htmlFor="filter-bgg-discovered-at"
+                htmlFor="filter-bgg-discovered-date"
                 className="sr-only"
               >
                 Filter by BGG discovered date
               </label>
               <select
-                id="filter-bgg-discovered-at"
-                value={selectedDiscoveredAt}
+                id="filter-bgg-discovered-date"
+                value={selectedDiscoveredDate}
                 onChange={(e) => {
-                  setSelectedDiscoveredAt(e.target.value);
+                  setSelectedDiscoveredDate(e.target.value);
                   setCurrentPage(1);
                 }}
                 className="w-full text-sm rounded border border-slate-300 bg-white px-2 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
               >
-                <option value="">All discovery times</option>
-                {discoveredAtOptions.map((iso) => (
-                  <option key={iso} value={iso}>
-                    {formatGameDate(iso)}
+                <option value="">All discovery dates</option>
+                {discoveredDateOptions.map((dateKey) => (
+                  <option key={dateKey} value={dateKey}>
+                    {formatLocalDateKeyLabel(dateKey)}
                   </option>
                 ))}
               </select>
@@ -504,7 +530,7 @@ const NewGames: React.FC = () => {
                         <strong className="text-slate-700">
                           BGG discovered:
                         </strong>{" "}
-                        {formatGameDate(game.bggDiscoveredAt)}
+                        {formatDateOnly(game.bggDiscoveredAt)}
                       </span>
                       <span>
                         <strong className="text-slate-700">Updated:</strong>{" "}
