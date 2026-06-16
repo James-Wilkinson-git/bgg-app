@@ -18,7 +18,7 @@
     "match-sorter": "^6.4.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^6.30.1",
+    "react-router-dom": "^6.30.4",
     "rss-parser": "^3.13.0",
     "sort-by": "^0.0.2",
     "xml-js": "^1.6.11",
